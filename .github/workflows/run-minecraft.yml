@@ -1,0 +1,61 @@
+name: Minecraft Fabric Server
+
+on:
+  workflow_dispatch: # Chạy thủ công từ GitHub UI
+  schedule:
+    - cron: '0 */6 * * *' # Mỗi 6 giờ (tùy chỉnh)
+
+jobs:
+  run-server:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360 # 6 giờ max cho workflow
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Set up GitHub CLI and jq
+        run: |
+          sudo apt update
+          sudo apt install -y gh jq
+
+      - name: Authenticate GitHub CLI
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo $GITHUB_TOKEN | gh auth login --with-token
+
+      - name: Start Codespace if needed
+        run: |
+          CODESPACE_NAME="your-codespace-name"
+          STATUS=$(gh codespace list --json name,state | jq -r ".[] | select(.name==\"$CODESPACE_NAME\") | .state")
+          if [ "$STATUS" != "Available" ]; then
+            echo "Starting Codespace..."
+            gh codespace start "$CODESPACE_NAME"
+            sleep 60
+          else
+            echo "Codespace already running."
+          fi
+
+      - name: Keep-alive + Run Minecraft server
+        run: |
+          CODESPACE_NAME="expert-space-carnival-q74pjxr6r9vwcj97"
+          RUN_PATH="/workspaces/server-fabric/run.sh"
+          LOG_PATH="/workspaces/server-fabric/minecraft.log"
+
+          echo "Keep-alive loop started..."
+          for i in {1..72}; do  # 72 lần * 5 phút = 6 giờ
+            echo "[Keep-alive] $(date)" | tee -a $LOG_PATH
+            # Keep-alive Codespace
+            gh codespace ssh -c "$CODESPACE_NAME" -- echo "keep-alive $(date)"
+            # Run Minecraft server if not running
+            gh codespace ssh -c "$CODESPACE_NAME" -- bash "$RUN_PATH"
+            sleep 300  # 5 phút
+          done
+
+      - name: Upload Minecraft logs
+        uses: actions/upload-artifact@v3
+        with:
+          name: minecraft-logs
+          path: /workspaces/server-fabric/minecraft.log
+
